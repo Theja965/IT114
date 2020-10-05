@@ -26,7 +26,7 @@ public class SocketClient {
 			return;
 		}
 		System.out.println("Listening for input");
-		try(Scanner si = new Scanner(System.in);
+		try(Scanner si) = new Scanner(System.in);
 				PrintWriter out = new PrintWriter(server.getOutputStream(), true);
 				BufferedReader in = new BufferedReader(new InputStreamReader(server.getInputStream()));){
 			String line = "";
