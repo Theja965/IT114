@@ -1,28 +1,60 @@
 package server;
 
+import java.awt.Dimension;
 import java.awt.Point;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.net.Socket;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 public class ServerThread extends Thread {
-    private Socket client;
+    Socket client;
     private ObjectInputStream in;// from client
     private ObjectOutputStream out;// to client
     private boolean isRunning = false;
     private Room currentRoom;// what room we are in, should be lobby by default
     private String clientName;
     private final static Logger log = Logger.getLogger(ServerThread.class.getName());
-    public boolean isPlaying = true;
-    
-    public int choice =-1;
-    
-    
+    public boolean setReady = false;
+    List<String> mutedClients = new ArrayList<String>();
+
+    public boolean isMuted(String clientName) {
+	clientName = clientName.trim().toLowerCase();
+	return mutedClients.contains(clientName);
+    }
+
+    public void mute(String name) {
+	name = name.trim().toLowerCase();
+	if (!isMuted(name)) {
+	    mutedClients.add(name);
+	    save();
+	}
+    }
+
+    public void unmute(String name) {
+	name = name.trim().toLowerCase();
+	if (isMuted(name)) {
+	    mutedClients.remove(name);
+	    save();
+	}
+    }
+
+    void save() {
+	String data = clientName + ":" + String.join(",", mutedClients);
+	System.out.println(data);
+    }
+
+    void load() {
+	String dataFromFile = "";
+	mutedClients = Arrays.asList(dataFromFile.split(","));
+    }
+
     public String getClientName() {
 	return clientName;
     }
@@ -129,6 +161,81 @@ public class ServerThread extends Thread {
 	return sendPayload(payload);
     }
 
+    protected boolean sendChair(String chairName, Point chairPosition, Dimension chairSize, String sitter) {
+	Payload payload = new Payload();
+	payload.setPayloadType(PayloadType.SYNC_CHAIR);
+	payload.setMessage(chairName);
+	if (chairPosition != null) {
+	    payload.setPoint(chairPosition);
+	}
+	if (chairSize != null) {
+	    payload.setPoint2(new Point(chairSize.width, chairSize.height));
+	}
+	payload.setClientName(sitter);
+	return sendPayload(payload);
+    }
+
+    // updated boolean isAvailable to String of holder (or null)
+    protected boolean sendTicket(String ticketName, Point ticketPosition, Dimension ticketSize, String holder) {
+	Payload payload = new Payload();
+	payload.setPayloadType(PayloadType.SYNC_TICKET);
+	System.out.println("sendTicketPayload: " + ticketName);
+	payload.setMessage(ticketName);
+	if (ticketPosition != null) {
+	    payload.setPoint(ticketPosition);
+	}
+	if (ticketSize != null) {
+	    payload.setPoint2(new Point(ticketSize.width, ticketSize.height));
+	}
+	// payload.setFlag(isAvailable);
+	payload.setClientName(holder);
+	return sendPayload(payload);
+    }
+
+    protected boolean sendGameAreaSize(Dimension roomSize) {
+	Payload payload = new Payload();
+	payload.setPayloadType(PayloadType.SYNC_GAME_SIZE);
+	payload.setPoint(new Point(roomSize.width, roomSize.height));
+	return sendPayload(payload);
+    }
+
+    protected boolean sendCountdown(String message, int duration) {
+	Payload payload = new Payload();
+	payload.setPayloadType(PayloadType.SET_COUNTDOWN);
+	payload.setMessage(message);
+	payload.setNumber(duration);
+	return sendPayload(payload);
+    }
+
+    protected boolean sendToggleLockAll(boolean isLocked) {
+	Payload p = new Payload();
+	p.setPayloadType(PayloadType.TOGGLE_LOCK);
+	p.setFlag(isLocked);
+	return sendPayload(p);
+    }
+
+    protected boolean sendUpdateTicketCollector(int chairIndex) {
+	Payload p = new Payload();
+	p.setPayloadType(PayloadType.UPDATE_COLLECTOR);
+	p.setNumber(chairIndex);
+	return sendPayload(p);
+    }
+
+    protected boolean sendKickPlayer(String clientName) {
+	Payload p = new Payload();
+	p.setPayloadType(PayloadType.KICK_PLAYER);
+	p.setClientName(clientName);
+	return sendPayload(p);
+    }
+
+    protected boolean syncIsTyping(String clientName, boolean isTyping) {
+	Payload p = new Payload();
+	p.setPayloadType(PayloadType.TYPING);
+	p.setClientName(clientName);
+	p.setFlag(isTyping);
+	return sendPayload(p);
+    }
+
     private boolean sendPayload(Payload p) {
 	try {
 	    out.writeObject(p);
@@ -170,16 +277,13 @@ public class ServerThread extends Thread {
 	    // we currently don't need to do anything since the UI/Client won't be sending
 	    // this
 	    break;
-	case SYNC_DIRECTION:
-	    currentRoom.sendDirectionSync(this, p.getPoint());
-	    break;
 	case SYNC_POSITION:
 	    // In my sample client will not be sharing their position
 	    // this will be handled 100% by the server
 	    break;
 	case GET_ROOMS:
 	    // far from efficient but it works for example sake
-	    List<String> roomNames = currentRoom.getRooms();
+	    List<String> roomNames = currentRoom.getRooms(p.getMessage());
 	    Iterator<String> iter = roomNames.iterator();
 	    while (iter.hasNext()) {
 		String room = iter.next();
@@ -190,6 +294,9 @@ public class ServerThread extends Thread {
 		    }
 		}
 	    }
+	    break;
+	case CREATE_ROOM:
+	    currentRoom.createRoom(p.getMessage(), this);
 	    break;
 	case JOIN_ROOM:
 	    currentRoom.joinRoom(p.getMessage(), this);
@@ -268,4 +375,5 @@ public class ServerThread extends Thread {
 	    }
 	}
     }
+
 }

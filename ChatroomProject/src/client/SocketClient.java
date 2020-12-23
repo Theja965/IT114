@@ -49,6 +49,7 @@ public enum SocketClient {
 
     private void sendPayload(Payload p) {
 	try {
+	    System.out.println("Sending: " + p);
 	    out.writeObject(p);
 	}
 	catch (IOException e) {
@@ -70,6 +71,7 @@ public enum SocketClient {
 		    Payload fromServer;
 		    // while we're connected, listen for Payloads from server
 		    while (!server.isClosed() && (fromServer = (Payload) in.readObject()) != null) {
+			System.out.println("Received from SERVER: " + fromServer);
 			processPayload(fromServer);
 		    }
 		}
@@ -161,6 +163,107 @@ public enum SocketClient {
 	}
     }
 
+    private void sendSize(Point p) {
+	Iterator<Event> iter = events.iterator();
+	while (iter.hasNext()) {
+	    Event e = iter.next();
+	    if (e != null) {
+		e.onResize(p);
+	    }
+	}
+    }
+
+    private void sendChair(String name, Point position, Point dimension, String sitter) {
+	Iterator<Event> iter = events.iterator();
+	while (iter.hasNext()) {
+	    Event e = iter.next();
+	    if (e != null) {
+		e.onGetChair(name, position, dimension, sitter);
+
+	    }
+	}
+    }
+
+    private void sendResetChairs() {
+	Iterator<Event> iter = events.iterator();
+	while (iter.hasNext()) {
+	    Event e = iter.next();
+	    if (e != null) {
+		e.onResetChairs();
+	    }
+	}
+    }
+
+    private void sendTicket(String name, Point position, Point dimension, String holder) {// boolean flag) {
+	Iterator<Event> iter = events.iterator();
+	while (iter.hasNext()) {
+	    Event e = iter.next();
+	    if (e != null) {
+		e.onGetTicket(name, position, dimension, holder);
+	    }
+	}
+    }
+
+    private void sendResetTickets() {
+	Iterator<Event> iter = events.iterator();
+	while (iter.hasNext()) {
+	    Event e = iter.next();
+	    if (e != null) {
+		e.onResetTickets();
+	    }
+	}
+    }
+
+    private void sendCountdown(String message, int duration) {
+	Iterator<Event> iter = events.iterator();
+	while (iter.hasNext()) {
+	    Event e = iter.next();
+	    if (e != null) {
+		e.onSetCountdown(message, duration);
+	    }
+	}
+    }
+
+    private void sendToggleLock(boolean isLocked) {
+	Iterator<Event> iter = events.iterator();
+	while (iter.hasNext()) {
+	    Event e = iter.next();
+	    if (e != null) {
+		e.onToggleLock(isLocked);
+	    }
+	}
+    }
+
+    private void sendUpdateCollector(int chairIndex) {
+	Iterator<Event> iter = events.iterator();
+	while (iter.hasNext()) {
+	    Event e = iter.next();
+	    if (e != null) {
+		e.onUpdateTicketCollector(chairIndex);
+	    }
+	}
+    }
+
+    private void sendKick(String clientName) {
+	Iterator<Event> iter = events.iterator();
+	while (iter.hasNext()) {
+	    Event e = iter.next();
+	    if (e != null) {
+		e.onPlayerKicked(clientName);
+	    }
+	}
+    }
+
+    private void triggerIstyping(String clientName, boolean isTyping) {
+	Iterator<Event> iter = events.iterator();
+	while (iter.hasNext()) {
+	    Event e = iter.next();
+	    if (e != null) {
+		e.onIsTyping(clientName, isTyping);
+	    }
+	}
+    }
+
     /***
      * Determine any special logic for different PayloadTypes
      * 
@@ -190,6 +293,42 @@ public enum SocketClient {
 	case GET_ROOMS:
 	    // reply from ServerThread
 	    sendRoom(p.getMessage());
+	    break;
+	case SYNC_GAME_SIZE:
+	    sendSize(p.getPoint());
+	    break;
+	case SYNC_CHAIR:
+	    // we'll use null to reset and not null to add
+	    if (p.getMessage() != null) {
+		sendChair(p.getMessage(), p.getPoint(), p.getPoint2(), p.getClientName());
+	    }
+	    else {
+		sendResetChairs();
+	    }
+	    break;
+	case SYNC_TICKET:
+	    // we'll use null to reset and not null to add
+	    if (p.getMessage() != null) {
+		// changed from flag to passing client name
+		sendTicket(p.getMessage(), p.getPoint(), p.getPoint2(), p.getClientName());// p.getFlag());
+	    }
+	    else {
+		sendResetTickets();
+	    }
+	    break;
+	case SET_COUNTDOWN:
+	    sendCountdown(p.getMessage(), p.getNumber());
+	    break;
+	case TOGGLE_LOCK:
+	    sendToggleLock(p.getFlag());
+	    break;
+	case UPDATE_COLLECTOR:
+	    sendUpdateCollector(p.getNumber());
+	    break;
+	case KICK_PLAYER:
+	    sendKick(p.getClientName());
+	case TYPING:
+	    triggerIstyping(p.getClientName(), p.getFlag());
 	    break;
 	default:
 	    log.log(Level.WARNING, "unhandled payload on client" + p);
@@ -272,6 +411,19 @@ public enum SocketClient {
 	// so let's save a few bytes
 	p.setPayloadType(PayloadType.SYNC_DIRECTION);
 	p.setPoint(dir);
+	sendPayload(p);
+    }
+
+    public void syncPickupTicket() {
+	Payload p = new Payload();
+	p.setPayloadType(PayloadType.PICKUP_TICKET);
+	sendPayload(p);
+    }
+
+    public void sendIsTyping(boolean isTyping) {
+	Payload p = new Payload();
+	p.setPayloadType(PayloadType.TYPING);
+	p.setFlag(isTyping);
 	sendPayload(p);
     }
 

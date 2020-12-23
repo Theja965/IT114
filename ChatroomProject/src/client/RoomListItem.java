@@ -55,4 +55,3 @@ public class RoomListItem extends JPanel implements AutoCloseable {
 	return roomName.getText();
     }
 }
-

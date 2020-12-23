@@ -1,41 +1,49 @@
 package server;
 
 import java.awt.Dimension;
-import java.awt.Graphics;
-import java.awt.Point;
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.FileWriter;
+import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.Random;
+import java.util.Scanner;
 
-import client.Player;
-import core.BaseGamePanel;
+import server.Room;
+import core.Countdown;
+import core.Helpers;
+import server.ServerThread;
 
-public class Room extends BaseGamePanel implements AutoCloseable {
+public class Room implements AutoCloseable {
+	/**
+	 * 
+	 */
+	private static final long serialVersionUID = -2396927244891036163L;
 	private static SocketServer server;// used to refer to accessible server functions
 	private String name;
 	private final static Logger log = Logger.getLogger(Room.class.getName());
-	private Countdown timer;
-	//copy class from link
 
 	// Commands
 	private final static String COMMAND_TRIGGER = "/";
 	private final static String CREATE_ROOM = "createroom";
 	private final static String JOIN_ROOM = "joinroom";
-	private List<ClientPlayer> clients = new ArrayList<ClientPlayer>();
-	static Dimension gameAreaSize = new Dimension(400, 600);
+	private final static String ROLL = "roll";
+	private final static String FLIP = "flip";
+	private List<ServerThread> clients = new ArrayList<ServerThread>();
+	static Dimension gameAreaSize = new Dimension(800, 800);
 
 	public Room(String name, boolean delayStart) {
-		super(delayStart);
 		this.name = name;
-		isServer = true;
 	}
 
 	public Room(String name) {
 		this.name = name;
 		// set this for BaseGamePanel to NOT draw since it's server-side
-		isServer = true;
 	}
 
 	public static void setServer(SocketServer server) {
@@ -46,112 +54,104 @@ public class Room extends BaseGamePanel implements AutoCloseable {
 		return name;
 	}
 
-	private static Point getRandomStartPosition() {
-		Point startPos = new Point();
-		startPos.x = (int) (Math.random() * gameAreaSize.width);
-		startPos.y = (int) (Math.random() * gameAreaSize.height);
-		return startPos;
-	}
-
+	@SuppressWarnings("null")
 	protected synchronized void addClient(ServerThread client) {
 		client.setCurrentRoom(this);
 		boolean exists = false;
 		// since we updated to a different List type, we'll need to loop through to find
 		// the client to check against
-		Iterator<ClientPlayer> iter = clients.iterator();
+		Iterator<ServerThread> iter = clients.iterator();
 		while (iter.hasNext()) {
-			ClientPlayer c = iter.next();
-			if (c.client == client) {
+			ServerThread c = iter.next();
+			if (c == client) {
 				exists = true;
-				if (c.player == null) {
+				if (client == null) {
 					log.log(Level.WARNING, "Client " + client.getClientName() + " player was null, creating");
-					Player p = new Player();
-					p.setName(client.getClientName());
-					c.player = p;
 					syncClient(c);
+
 				}
 				break;
 			}
 		}
-
 		if (exists) {
 			log.log(Level.INFO, "Attempting to add a client that already exists");
 		} else {
 			// create a player reference for this client
 			// so server can determine position
-			Player p = new Player();
-			p.setName(client.getClientName());
 			// add Player and Client reference to ClientPlayer object reference
-			ClientPlayer cp = new ClientPlayer(client, p);
-			clients.add(cp);// this is a "merged" list of Clients (ServerThread) and Players (Player)
+			clients.add(client);
+			syncClient(client);
+			readFromFile(client.getClientName(), client);
+			// this is a "merged" list of Clients (ServerThread) and Players (Player)
 			// objects
 			// that's so we don't have to keep track of the same client in two different
 			// list locations
-			syncClient(cp);
 
 		}
-	}
 
-	private void syncClient(ClientPlayer cp) {
-		if (cp.client.getClientName() != null) {
-			cp.client.sendClearList();
-			sendConnectionStatus(cp.client, true, "joined the room " + getName());
-			// calculate random start position
-			Point startPos = Room.getRandomStartPosition();
-			cp.player.setPosition(startPos);
-			// tell our client of our server determined position
-			cp.client.sendPosition(cp.client.getClientName(), startPos);
-			// tell everyone else about our server determiend position
-			sendPositionSync(cp.client, startPos);
-			// get the list of connected clients (for ui panel)
-			updateClientList(cp.client);
-			// get dir/pos of existing players
-			updatePlayers(cp.client);
-		}
 	}
-
-	/***
-	 * Syncs the existing players in the room with our newly connected player
-	 * 
-	 * @param client
-	 */
-	private synchronized void updatePlayers(ServerThread client) {
-		// when we connect, send all existing clients current position and direction so
-		// we can locally show this on our client
-		Iterator<ClientPlayer> iter = clients.iterator();
-		while (iter.hasNext()) {
-			ClientPlayer c = iter.next();
-			if (c.client != client) {
-				boolean messageSent = client.sendDirection(c.client.getClientName(), c.player.getDirection());
-				if (messageSent) {
-					messageSent = client.sendPosition(c.client.getClientName(), c.player.getPosition());
+	public void readFromFile(String fileName, ServerThread client) {
+		try (Scanner reader = new Scanner(fileName)) {
+			File file = new File(fileName);
+			String fullText = "";
+			while (reader.hasNextLine()) {
+				String nl = reader.nextLine();
+				System.out.println("Next line: " + nl);
+				fullText += nl;
+				// Scanner.nextLine() returns the line but excludes the line separator
+				// so just append it back so it'll show correctly in the console
+				if (reader.hasNextLine()) {// just a check to not append an extra line ending at the end
+					fullText += System.lineSeparator();
 				}
 			}
+			System.out.println("Contents of " + fileName + ": ");
+			System.out.println(fullText);
+			List<String>myList = new ArrayList<String>(Arrays.asList(fullText.split(","))); 
+			client.mutedClients = myList;	
+		}
+		catch(Exception e) {
+			
 		}
 	}
 
-	/**
-	 * Syncs the existing clients in the room with our newly connected client
-	 * 
-	 * @param client
-	 */
+	public void clientPersist(ServerThread client, String fileName){
+		String myString= client.mutedClients.toString().replaceAll("\\[|\\]|,","");
+		try (FileWriter fw = new FileWriter(fileName);) {
+			fw.write(System.lineSeparator());
+			fw.write(myString);
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+	}
+
+	private synchronized void syncClient(ServerThread client) {
+		if (client.getClientName() != null) {
+			client.sendClearList();
+			sendConnectionStatus(client, true, "joined the room" + getName());
+			updateClientList(client);
+
+		}
+	}
+
 	private synchronized void updateClientList(ServerThread client) {
-		Iterator<ClientPlayer> iter = clients.iterator();
+		Iterator<ServerThread> iter = clients.iterator();
 		while (iter.hasNext()) {
-			ClientPlayer c = iter.next();
-			if (c.client != client) {
-				boolean messageSent = client.sendConnectionStatus(c.client.getClientName(), true, null);
+			ServerThread c = iter.next();
+			if (c != client) {
+				client.sendConnectionStatus(c.getClientName(), true, null);
 			}
 		}
+
 	}
 
 	protected synchronized void removeClient(ServerThread client) {
-		Iterator<ClientPlayer> iter = clients.iterator();
+		Iterator<ServerThread> iter = clients.iterator();
 		while (iter.hasNext()) {
-			ClientPlayer c = iter.next();
-			if (c.client == client) {
+			ServerThread c = iter.next();
+			if (c == client) {
 				iter.remove();
-				log.log(Level.INFO, "Removed client " + c.client.getClientName() + " from " + getName());
+				log.log(Level.INFO, "Removed client " + client.getClientName() + " from " + getName());
 			}
 		}
 		if (clients.size() > 0) {
@@ -170,7 +170,6 @@ public class Room extends BaseGamePanel implements AutoCloseable {
 			log.log(Level.INFO, "Closing empty room: " + name);
 			close();
 		} catch (Exception e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
 	}
@@ -183,15 +182,15 @@ public class Room extends BaseGamePanel implements AutoCloseable {
 		server.joinLobby(client);
 	}
 
-	/***
-	 * Helper function to process messages to trigger different functionality.
-	 * 
-	 * @param message The original message being sent
-	 * @param client  The sender of the message (since they'll be the ones
-	 *                triggering the actions)
-	 */
-	private boolean processCommands(String message, ServerThread client) {
-		boolean wasCommand = false;
+	protected void createRoom(String room, ServerThread client) {
+		if (server.createNewRoom(room)) {
+			sendMessage(client, "Created a new room");
+			joinRoom(room, client);
+		}
+	}
+
+	private String processCommands(String message, ServerThread client) {
+		String response = null;
 		try {
 			if (message.indexOf(COMMAND_TRIGGER) > -1) {
 				String[] comm = message.split(COMMAND_TRIGGER);
@@ -203,123 +202,122 @@ public class Room extends BaseGamePanel implements AutoCloseable {
 					command = command.toLowerCase();
 				}
 				String roomName;
+				ServerThread cp = null;
 				switch (command) {
+				case FLIP:
+					Random randomNum = new Random();
+					int result;
+					result = randomNum.nextInt(2);
+					if (result == 0) {
+						response = "<i>You flipped heads!</i>";
+					} else {
+						response = "<i>You flipped tails!</i>";
+					}
+					break;
+				case ROLL:
+					Random rand = new Random();
+					int randNum1 = rand.nextInt(10);
+					response = "<i>You got the number</i>" + " " + randNum1;
+					break;
 				case CREATE_ROOM:
 					roomName = comm2[1];
-					if (server.createNewRoom(roomName)) {
-						joinRoom(roomName, client);
-					}
-					wasCommand = true;
+					createRoom(roomName, client);
 					break;
 				case JOIN_ROOM:
 					roomName = comm2[1];
 					joinRoom(roomName, client);
-					wasCommand = true;
 					break;
-				case "rock":
-					client.choice = 1;
-					readyCheck();
-					System.out.println("User picked" + command);
+				case "mute":
+					String mutedDude = comm2[1];
+					client.mute(mutedDude);
+					clientPersist(client, client.getClientName());
+					sendPrivateMessage(client, Arrays.asList(mutedDude), client.getClientName() + " has muted " + mutedDude);					
 					break;
-				case "paper":
-					client.choice = 2;
-					readyCheck();
-					System.out.println("User picked" + command);
+				case "unmute":
+					String unmutedDude = comm2[1];
+					client.unmute(unmutedDude);
+					clientPersist(client, client.getClientName());
+					sendPrivateMessage(client, Arrays.asList(unmutedDude), client.getClientName() + " has unmuted you " + unmutedDude);					
 					break;
-				case "scissors":
-					System.out.println("User picked" + command);
-					client.choice = 0;
-					readyCheck();
+				case "pm":
+					// TODO extract clients from message, save to array with
+					String clientName = comm2[1];
+					clientName = clientName.trim().toLowerCase();
+					List<String> clients = new ArrayList<String>();
+					clients.add(clientName);
+					sendPrivateMessage(client, clients, message);
+					response = null;
 					break;
-
+				default:
+					// not a command, let's fix this function from eating messages
+					response = message;
+					break;
 				}
+			} else {
+				// not a command, let's fix this function from eating messages
+				// response = message;
+				String alteredMessage = message;
+
+				if (alteredMessage.indexOf("@@") > -1) {
+					String[] s1 = alteredMessage.split("@@");
+					String m = "";
+					// m += s1[0];
+					for (int i = 0; i < s1.length; i++) {
+						if (i % 2 == 0) {
+							m += s1[i];
+						} else {
+							m += "<b>" + s1[i] + "</b>";
+						}
+						System.out.println(s1[i]);
+					}
+					// m += s1[s1.length - 1];
+					alteredMessage = m;
+				}
+				if (alteredMessage.indexOf("##") > -1) {
+					String[] s1 = alteredMessage.split("##");
+					String m = "";
+					// m += s1[0];
+					for (int i = 0; i < s1.length; i++) {
+						if (i % 2 == 0) {
+							m += s1[i];
+						} else {
+							m += "<i>" + s1[i] + "</i>";
+						}
+						System.out.println(s1[i]);
+
+						}
+						alteredMessage = m;
+				}	
+				if (alteredMessage.indexOf("und") > -1) {
+					String[] s1 = alteredMessage.split("und");
+					String m = "";
+					// m += s1[0];
+					for (int i = 0; i < s1.length; i++) {
+						if (i % 2 == 0) {
+							m += s1[i];
+						} else {
+							m += "<u>" + s1[i] + "</u>";
+						}
+						System.out.println(s1[i]);
+
+						}
+						alteredMessage = m;
+				}
+					response = alteredMessage;
 			}
 		} catch (Exception e) {
 			e.printStackTrace();
 		}
-		return wasCommand;
-	}
-
-	private void readyCheck() {
-		Iterator<ClientPlayer> iter = clients.iterator();
-		int total = 0;
-		int ready = -1;
-		while (iter.hasNext()) {
-			ClientPlayer cp = iter.next();
-			if (cp != null) {
-				if (cp.client.isPlaying) {
-					total++;
-				}
-				if (cp.client.choice > -1) {
-				}
-				ready++;
-			}
-		}
-		if (ready >= total) {
-			System.out.println("Ready to play!");
-		}
-
-		if (ready >= total) {
-			for (int i = 0; i < clients.size(); i += 2) {
-				ClientPlayer a = clients.get(i);
-				ClientPlayer b = clients.get(i + 1);
-				winner = compare(a, b);
-				//Fix this^^
-
-			}
-		}
-
-	}
-	public void Timer() {
-		if(timer == null) {
-			timer = new Countdown("15 seconds to start the game!",15,(x)->{
-				DetermineWinners():
-			
-			});
-		}
-	}
-	void DetemineWinners() {
-		if (timer != null) {
-			timer.cancel();
-		}
-
-		if (ready == total) {
-			DetermineWinners();
-
-		}
-	}
-
-	public ClientPlayer randomPlayer() {
-		int total = clients.size();
-		int index = (int) Math.random() * total;
-		return clients.get(index);
-	}
-
-	int checkMatch(int a, int b) {
-		// math to find result without having all permutations
-		// see:
-		// https://stackoverflow.com/questions/11377117/rock-paper-scissors-determine-win-loss-tie-using-math
-		if (a == b) {
-			// tie
-			return 0;
-		}
-		if ((a - b + 3) % 3 == 1) {
-			// win
-			return 1;
-		} else {
-			// lose
-			return -1;
-		}
+		return response;
 	}
 
 	protected void sendConnectionStatus(ServerThread client, boolean isConnect, String message) {
-		Iterator<ClientPlayer> iter = clients.iterator();
+		Iterator<ServerThread> iter = clients.iterator();
 		while (iter.hasNext()) {
-			ClientPlayer c = iter.next();
-			boolean messageSent = c.client.sendConnectionStatus(client.getClientName(), isConnect, message);
+			ServerThread c = iter.next();
+			boolean messageSent = c.sendConnectionStatus(client.getClientName(), isConnect, message);
 			if (!messageSent) {
 				iter.remove();
-				log.log(Level.INFO, "Removed client " + c.client.getId());
 			}
 		}
 	}
@@ -334,18 +332,38 @@ public class Room extends BaseGamePanel implements AutoCloseable {
 	 */
 	protected void sendMessage(ServerThread sender, String message) {
 		log.log(Level.INFO, getName() + ": Sending message to " + clients.size() + " clients");
-		if (processCommands(message, sender)) {
+		String resp = processCommands(message, sender);
+		if (resp == null) {
+
 			// it was a command, don't broadcast
 			return;
 		}
-		Iterator<ClientPlayer> iter = clients.iterator();
+		message = resp;
+		Iterator<ServerThread> iter = clients.iterator();
 		while (iter.hasNext()) {
-			ClientPlayer client = iter.next();
-			boolean messageSent = client.client.send(sender.getClientName(), message);
-			if (!messageSent) {
-				iter.remove();
-				log.log(Level.INFO, "Removed client " + client.client.getId());
+			ServerThread client = iter.next();
+			if (!client.isMuted(sender.getClientName())) {
+				boolean messageSent = client.send(sender.getClientName(), message);
+				if (!messageSent) {
+					iter.remove();
+				}
 			}
+		}
+	}
+
+	protected void sendPrivateMessage(ServerThread sender, List<String> dest, String message) {
+
+		Iterator<ServerThread> iter = clients.iterator();
+		while (iter.hasNext()) {
+			ServerThread client = iter.next();
+			if (dest.contains(client.getClientName().toLowerCase())) {
+				boolean messageSent = client.send(sender.getClientName(), message);
+				if (!messageSent) {
+					iter.remove();
+				}
+				break;
+			}
+
 		}
 	}
 
@@ -355,58 +373,14 @@ public class Room extends BaseGamePanel implements AutoCloseable {
 	 * @param sender
 	 * @param dir
 	 */
-	protected void sendDirectionSync(ServerThread sender, Point dir) {
-		boolean changed = false;
-		// first we'll find the clientPlayer that sent their direction
-		// and update the server-side instance of their direction
-		Iterator<ClientPlayer> iter = clients.iterator();
-		while (iter.hasNext()) {
-			ClientPlayer client = iter.next();
-			// update only our server reference for this client
-			// if we don't have this "if" it'll update all clients (meaning everyone will
-			// move in sync)
-			if (client.client == sender) {
-				changed = client.player.setDirection(dir.x, dir.y);
-				break;
-			}
-		}
-		// if the direction is "changed" (it should be, but check anyway)
-		// then we'll broadcast the change in direction to all clients
-		// so their local movement reflects correctly
-		if (changed) {
-			iter = clients.iterator();
-			while (iter.hasNext()) {
-				ClientPlayer client = iter.next();
-				boolean messageSent = client.client.sendDirection(sender.getClientName(), dir);
-				if (!messageSent) {
-					iter.remove();
-					log.log(Level.INFO, "Removed client " + client.client.getId());
-				}
-			}
-
-		}
-	}
-
 	/**
 	 * Broadcasts this client/player position to all connected clients/players
 	 * 
 	 * @param sender
 	 * @param pos
 	 */
-	protected void sendPositionSync(ServerThread sender, Point pos) {
-		Iterator<ClientPlayer> iter = clients.iterator();
-		while (iter.hasNext()) {
-			ClientPlayer client = iter.next();
-			boolean messageSent = client.client.sendPosition(sender.getClientName(), pos);
-			if (!messageSent) {
-				iter.remove();
-				log.log(Level.INFO, "Removed client " + client.client.getId());
-			}
-		}
-	}
-
-	public List<String> getRooms() {
-		return server.getRooms();
+	public List<String> getRooms(String search) {
+		return server.getRooms(search);
 	}
 
 	/***
@@ -418,99 +392,14 @@ public class Room extends BaseGamePanel implements AutoCloseable {
 		int clientCount = clients.size();
 		if (clientCount > 0) {
 			log.log(Level.INFO, "Migrating " + clients.size() + " to Lobby");
-			Iterator<ClientPlayer> iter = clients.iterator();
+			Iterator<ServerThread> iter = clients.iterator();
 			Room lobby = server.getLobby();
 			while (iter.hasNext()) {
-				ClientPlayer client = iter.next();
-				lobby.addClient(client.client);
+				ServerThread client = iter.next();
+				lobby.addClient(client);
 				iter.remove();
 			}
 			log.log(Level.INFO, "Done Migrating " + clients.size() + " to Lobby");
 		}
-		server.cleanupRoom(this);
-		name = null;
-		isRunning = false;
-		// should be eligible for garbage collection now
 	}
-
-	@Override
-	public void awake() {
-		// TODO Auto-generated method stub
-
-	}
-
-	@Override
-	public void start() {
-		// TODO Auto-generated method stub
-		log.log(Level.INFO, getName() + " start called");
-	}
-
-	long frame = 0;
-
-	void checkPositionSync(ClientPlayer cp) {
-		// determine the maximum syncing needed
-		// you do NOT need it every frame, if you do it could cause network congestion
-		// and
-		// lots of bandwidth that doesn't need to be utilized
-		if (frame % 120 == 0) {// sync every 120 frames (i.e., if 60 fps that's every 2 seconds)
-			// check if it's worth sycning the position
-			// again this is to save unnecessary data transfer
-			if (cp.player.changedPosition()) {
-				sendPositionSync(cp.client, cp.player.getPosition());
-			}
-		}
-
-	}
-
-	@Override
-	public void update() {
-		// We'll make the server authoritative
-		// so we'll calc movement/collisions and send the action to the clients so they
-		// can visually update. Client's won't be determining this themselves
-		Iterator<ClientPlayer> iter = clients.iterator();
-		while (iter.hasNext()) {
-			ClientPlayer p = iter.next();
-			if (p != null) {
-				// have the server-side player calc their potential new position
-				p.player.move();
-				// determine if we should sync this player's position to all other players
-				checkPositionSync(p);
-			}
-		}
-
-	}
-
-	// don't call this more than once per frame
-	private void nextFrame() {
-		// we'll do basic frame tracking so we can trigger events
-		// less frequently than each frame
-		// update frame counter and prevent overflow
-		if (Long.MAX_VALUE - 5 <= frame) {
-			frame = Long.MIN_VALUE;
-		}
-		frame++;
-	}
-
-	@Override
-	public void lateUpdate() {
-		nextFrame();
-	}
-
-	@Override
-	public void draw(Graphics g) {
-		// this is the server, we won't be using this unless you're adding this view to
-		// the Honor's student extra section
-	}
-
-	@Override
-	public void quit() {
-		// don't call close here
-		log.log(Level.WARNING, getName() + " quit() ");
-	}
-
-	@Override
-	public void attachListeners() {
-		// no listeners either since server side receives no input
-	}
-
 }

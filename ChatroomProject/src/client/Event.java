@@ -16,4 +16,26 @@ public interface Event {
     void onSyncPosition(String clientName, Point position);
 
     void onGetRoom(String roomName);
+
+    void onResize(Point p);
+
+    void onGetChair(String chairName, Point position, Point dimension, String sitter);
+
+    void onResetChairs();
+
+    void onGetTicket(String ticketName, Point position, Point dimension, String holder);// boolean isAvailable);
+
+    void onResetTickets();
+
+    void onSetCountdown(String message, int duration);
+
+    void onToggleLock(boolean isLocked);
+
+    void onUpdateTicketCollector(int chairIndex);
+
+    void onPlayerKicked(String clientName);
+
+    void onIsMuted(String clientName, boolean isMuted);
+
+    void onIsTyping(String clientName, boolean isTyping);
 }

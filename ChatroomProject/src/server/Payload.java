@@ -8,9 +8,9 @@ public class Payload implements Serializable {
     /**
      * baeldung.com/java-serial-version-uid
      */
-    private static final long serialVersionUID = -6687715510484845706L;
+    private static final long serialVersionUID = -6687715510484845707L;
 
-    private String clientName;
+    private String clientName;// ~2 bytes per character
 
     public void setClientName(String s) {
 	this.clientName = s;
@@ -20,7 +20,7 @@ public class Payload implements Serializable {
 	return clientName;
     }
 
-    private String message;
+    private String message;// ~2 bytes per character
 
     public void setMessage(String s) {
 	this.message = s;
@@ -30,7 +30,7 @@ public class Payload implements Serializable {
 	return this.message;
     }
 
-    private PayloadType payloadType;
+    private PayloadType payloadType;// 4 bytes
 
     public void setPayloadType(PayloadType pt) {
 	this.payloadType = pt;
@@ -40,7 +40,7 @@ public class Payload implements Serializable {
 	return this.payloadType;
     }
 
-    private int number;
+    private int number;// 4 bytes
 
     public void setNumber(int n) {
 	this.number = n;
@@ -50,8 +50,8 @@ public class Payload implements Serializable {
 	return this.number;
     }
 
-    int x = 0;
-    int y = 0;
+    int x = 0;// 4 bytes
+    int y = 0;// 4 bytes
 
     public void setPoint(Point p) {
 	x = p.x;
@@ -62,10 +62,32 @@ public class Payload implements Serializable {
 	return new Point(x, y);
     }
 
+    // added so two sets of x,y could be sent
+    int x2 = 0;// 4 bytes
+    int y2 = 0;// 4 bytes
+
+    public void setPoint2(Point p) {
+	x2 = p.x;
+	y2 = p.y;
+    }
+
+    boolean flag = false;// 1 bit
+
+    public void setFlag(boolean flag) {
+	this.flag = flag;
+    }
+
+    public boolean getFlag() {
+	return flag;
+    }
+
+    public Point getPoint2() {
+	return new Point(x2, y2);
+    }
+
     @Override
     public String toString() {
-	return String.format("Type[%s], Number[%s], Message[%s]", getPayloadType().toString(), getNumber(),
-		getMessage());
+	return String.format("Type[%s], Number[%s], Message[%s], P1[%s], P2[%s]", getPayloadType().toString(),
+		getNumber(), getMessage(), getPoint(), getPoint2());
     }
 }
-
