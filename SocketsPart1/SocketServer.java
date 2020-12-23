@@ -4,14 +4,9 @@ import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
-//part 2
+
 public class SocketServer {
 	int port = 3001;
-	public SocketServer() {
-	}
 	private void start(int port) {
 		this.port = port;
 		System.out.println("Waiting for client");
@@ -24,18 +19,12 @@ public class SocketServer {
 			String fromClient = "";
 			String toClient = "";
 			while ((fromClient = in.readLine()) != null) {
-				System.out.println("From client: " + fromClient);
-				List<String> reversedInput = Arrays.asList(fromClient.split(""));
-				Collections.reverse(reversedInput);
-				toClient = String.join("", reversedInput);
-				System.out.println("Sending to client: " + toClient);
-				
 				if ("kill server".equalsIgnoreCase(fromClient)) {
-					out.println("Server received kill command, disconnecting");
+					System.out.println("Client killed server");
 					break;
 				}
 				else {
-					out.println(toClient);
+					System.out.println("From client: " + fromClient);
 				}
 			}
 		} catch (IOException e) {
@@ -51,23 +40,10 @@ public class SocketServer {
 
 	
 
-	public static void main(String[] arg) {
+	public static void main(String[] args) {
 		System.out.println("Starting Server");
 		SocketServer server = new SocketServer();
-		int port = -1;
-		if(arg.length > 0){
-			try{
-				port = Integer.parseInt(arg[0]);
-			}
-			catch(Exception e){
-				System.out.println("Invalid port: " + arg[0]);
-			}		
-		}
-		if(port > -1){
-			System.out.println("Server listening on port " + port);
-			server.start(port);
-		}
+		server.start(3001);
 		System.out.println("Server Stopped");
 	}
-}
 }
